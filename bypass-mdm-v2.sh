@@ -222,17 +222,6 @@ select opt in "${options[@]}"; do
 		echo -e "${YEL}═══════════════════════════════════════${NC}"
 		echo ""
 
-		# Normalize data volume name if needed
-		if [ "$data_volume" != "Data" ]; then
-			info "Renaming data volume to 'Data' for consistency..."
-			if diskutil rename "$data_volume" "Data" 2>/dev/null; then
-				success "Data volume renamed successfully"
-				data_volume="Data"
-			else
-				warn "Could not rename data volume, continuing with: $data_volume"
-			fi
-		fi
-
 		# Validate critical paths
 		info "Validating system paths..."
 
