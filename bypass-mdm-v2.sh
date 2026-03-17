@@ -114,60 +114,82 @@ find_available_uid() {
 detect_volumes() {
 	local system_vol=""
 	local data_vol=""
+	local -a system_candidates=()
+	local -a data_candidates=()
 
 	info "Detecting system volumes..." >&2
 
-	# Strategy 1: Look for common macOS APFS volume patterns
-	# List all volumes and look for system volume (ends with or contains common names)
+	# Collect system volume candidates
 	for vol in /Volumes/*; do
 		if [ -d "$vol" ]; then
 			vol_name=$(basename "$vol")
-
-			# Check if this looks like a system volume (not Data, not recovery)
 			if [[ ! "$vol_name" =~ "Data"$ ]] && [[ ! "$vol_name" =~ "Recovery" ]] && [ -d "$vol/System" ]; then
-				system_vol="$vol_name"
-				info "Found system volume: $system_vol" >&2
-				break
+				system_candidates+=("$vol_name")
+				info "Found system volume candidate: $vol_name" >&2
 			fi
 		fi
 	done
 
-	# Strategy 2: If no system volume found, try looking for any volume with /System directory
-	if [ -z "$system_vol" ]; then
+	if [ ${#system_candidates[@]} -eq 0 ]; then
 		for vol in /Volumes/*; do
 			if [ -d "$vol/System" ]; then
-				system_vol=$(basename "$vol")
-				warn "Using volume with /System directory: $system_vol" >&2
-				break
+				system_candidates+=("$(basename "$vol")")
 			fi
 		done
 	fi
 
-	# Strategy 3: Check for Data volume
-	if [ -d "/Volumes/Data" ]; then
-		data_vol="Data"
-		info "Found data volume: $data_vol" >&2
-	elif [ -n "$system_vol" ] && [ -d "/Volumes/$system_vol - Data" ]; then
-		data_vol="$system_vol - Data"
-		info "Found data volume: $data_vol" >&2
+	if [ ${#system_candidates[@]} -eq 0 ]; then
+		error_exit "Could not detect system volume."
+	elif [ ${#system_candidates[@]} -eq 1 ]; then
+		system_vol="${system_candidates[0]}"
+		info "Using system volume: $system_vol" >&2
 	else
-		# Look for any volume ending with "Data"
-		for vol in /Volumes/*Data; do
-			if [ -d "$vol" ]; then
-				data_vol=$(basename "$vol")
-				warn "Found data volume: $data_vol" >&2
+		echo "" >&2
+		warn "Multiple system volumes detected!" >&2
+		echo -e "${CYAN}Please select the system volume to use:${NC}" >&2
+		PS3='Enter volume number: '
+		select vol_choice in "${system_candidates[@]}"; do
+			if [ -n "$vol_choice" ]; then
+				system_vol="$vol_choice"
+				success "Selected system volume: $system_vol" >&2
 				break
+			else
+				echo -e "${RED}Invalid selection. Please try again.${NC}" >&2
 			fi
 		done
 	fi
 
-	# Validate findings
-	if [ -z "$system_vol" ]; then
-		error_exit "Could not detect system volume. Please ensure you're running this in Recovery mode with a macOS installation present."
-	fi
+	# Collect Data volume candidates
+	info "Detecting data volumes..." >&2
+	for vol in /Volumes/*; do
+		if [ -d "$vol" ]; then
+			vol_name=$(basename "$vol")
+			if [[ "$vol_name" =~ "Data" ]] && [ -d "$vol/private/var/db/dslocal/nodes/Default" ]; then
+				data_candidates+=("$vol_name")
+				info "Found data volume candidate: $vol_name" >&2
+			fi
+		fi
+	done
 
-	if [ -z "$data_vol" ]; then
-		error_exit "Could not detect data volume. Please ensure you're running this in Recovery mode with a macOS installation present."
+	if [ ${#data_candidates[@]} -eq 0 ]; then
+		error_exit "Could not detect any data volume."
+	elif [ ${#data_candidates[@]} -eq 1 ]; then
+		data_vol="${data_candidates[0]}"
+		info "Using data volume: $data_vol" >&2
+	else
+		echo "" >&2
+		warn "Multiple data volumes detected!" >&2
+		echo -e "${CYAN}Please select the data volume associated with '$system_vol':${NC}" >&2
+		PS3='Enter volume number: '
+		select vol_choice in "${data_candidates[@]}"; do
+			if [ -n "$vol_choice" ]; then
+				data_vol="$vol_choice"
+				success "Selected data volume: $data_vol" >&2
+				break
+			else
+				echo -e "${RED}Invalid selection. Please try again.${NC}" >&2
+			fi
+		done
 	fi
 
 	echo "$system_vol|$data_vol"
